@@ -10,38 +10,59 @@ export default definePlugin({
         },
     ],
     patches: [{
-        find: "ADD_STICKER_PREVIEW:function(",
-        replacement: {
-            match: /\((\w+)\.draftType===(\w+).(\w+)\.FirstThreadMessage\?(\S):(\w)\)\[(\w)\]=\[(\w)\]/,
-            replace: "const _store=($1.draftType===$2.$3.FirstThreadMessage?$4:$5);_store[$6]=_store[$6]?.filter(x=>x.id!==$7.id);if(_store[$6]?.length===3)_store[$6].shift();_store[$6]=[..._store[$6]??[],$7]",
-        }
-    },
-    {
-        find: "CLEAR_STICKER_PREVIEW:function(",
-        replacement: {
-            match: /\((\w+)\)\{var (\w)=\w\.channelId,(\w)=\w\.draftType===(\w+)\.(\w+)\.FirstThreadMessage\?(\S):(\w+);/,
-            replace: "($1){var $2=$1.channelId,$3=$1.draftType===$4.$5.FirstThreadMessage?$6:$7;if($1.stickerId){$3[$2]=$3[$2]?.filter(x=>x.id!==$1.stickerId);return;}",
-        }
+        find: "StickerMessagePreviewStore",
+        replacement: [{
+            match: /ADD_STICKER_PREVIEW:function\((\w+).+?===(\w+\.\w+)\.FirstThreadMessage\?(\S+?):(\w+).+?\}/,
+            replace: (_, event, constants, threadStore, store) => {
+                return `ADD_STICKER_PREVIEW:function(${event}){` +
+                    `const _c=${event}.channelId` +
+                    `,_s=${event}.draftType===${constants}.FirstThreadMessage?${threadStore}:${store};` +
+                    `_s[_c]=_s[_c]?.filter((_x)=>_x.id!==${event}.sticker.id);` +
+                    `if(_s[_c]?.length===3){_s[_c].shift()};` +
+                    `_s[_c]=[..._s[_c]??[],${event}.sticker]` +
+                    `}`;
+            },
+        },
+        {
+            match: /CLEAR_STICKER_PREVIEW:function\((\w+).+?(\w+\.\w+).FirstThreadMessage\?(\S+?):(\w+).+?\}/,
+            replace: (_, event, constants, threadStore, store) => {
+                return `CLEAR_STICKER_PREVIEW:function(${event}){` +
+                    `const _c=${event}.channelId,` +
+                    `_s=${event}.draftType===${constants}.FirstThreadMessage?${threadStore}:${store};` +
+                    `if(${event}.stickerId){_s[_c]=_s[_c]?.filter((_x)=>_x.id!==${event}.stickerId);return;}` +
+                    `null!=_s[_c]&&delete _s[_c]` +
+                    `}`;
+            }
+        }],
     },
     {
         find: "().stickerPreviewContainer",
         replacement: {
-            match: /(?<=\(\)\.closeButton,onClick:function\(\)\{return\(0,)(\w+)\.(\w+)\)\((\w+),(\w+)\.drafts\.type\)\}/,
-            replace: "$1.$2)($3,$4.drafts.type, e.id)}",
+            match: /(?<=\(\)\.closeButton,onClick:function\(\)){return\(0,(\w+\.\w+)\)\((\w+),(\w+\.\w+\.type)\)\}/,
+            replace: (_, clear, channelId, type) => {
+                return `{return(0,${clear})(${channelId},${type}, e.id)}`; // i really really dont want to match the entire map function, e is almost always react props
+            }
         }
     },
     {
-        find: `"CLEAR_STICKER_PREVIEW",channelId:`,
+        find: `type:"CLEAR_STICKER_PREVIEW",channelId:`,
         replacement: {
-            match: /(?<=GUILD_STICKERS_CREATE_SUCCESS)(.+?)function (\w+)\((\w+),(\w+)\)\{(\w+)\.(\w+)\.dispatch.+?\}/,
-            replace: `$1function $2($3,$4,_s){$5.$6.dispatch({type:"CLEAR_STICKER_PREVIEW",channelId:$3,draftType:$4,stickerId:_s}`,
+            match: /function (\w+)\(\w+,\w+\)\{(\w+\.\w+)\.dispatch.+?\}\)\}/,
+            replace: (_, name, Dispatch) => {
+                return `function ${name}(_c, _t, _s){` +
+                    `${Dispatch}.dispatch({type:"CLEAR_STICKER_PREVIEW",channelId:_c,draftType:_t,stickerId:_s})` +
+                    `}`;
+            }
         }
     },
     {
         find: "().stickerInspected",
         replacement: {
-            match: /(?<=\(\)\.stickerInspected)(.+?onClick:function)\((\w+)\)\{/,
-            replace: "$1($2){if($2.shiftKey)Vencord.Plugins.plugins.multistickers.shiftEvent.set();"
+            match: /(?<=\(\)\.stickerInspected)(.+?),onClick:function\((\w+)\)\{/,
+            replace: (_, stuff, event) => {
+                return `${stuff},onClick:function(${event}){` +
+                    `if(${event}.shiftKey){Vencord.Plugins.plugins.multistickers.shiftEvent.set()};`;
+            }
         }
     },
     {
@@ -58,6 +79,10 @@ export default definePlugin({
             replace: `$1if(Vencord.Plugins.plugins.multistickers.shiftEvent.get("close"))return;`
         }
     }],
+    start() {
+        document.head.insertAdjacentHTML("beforeend", `<style>.closeButton-mGpA26 { margin-right: 2px;}
+.stickerPreview-3hZwLL { margin-right: 8px}</style>`);
+    },
 
     shiftEvent: {
         shouldNotClose: false,
@@ -67,14 +92,17 @@ export default definePlugin({
             this.shouldAttach = true;
         },
         get(type) {
-            if (type === "attach") {
-                const ret = this.shouldAttach;
-                this.shouldAttach = false;
-                return ret;
+            let ret = false;
+            switch (type) {
+                case "attach":
+                    ret = this.shouldAttach;
+                    this.shouldAttach = false;
+                    break;
+                case "close":
+                    ret = this.shouldNotClose;
+                    this.shouldNotClose = false;
             }
-            const ret = this.shouldNotClose;
-            this.shouldNotClose = false;
             return ret;
-        }
-    }
+        },
+    },
 });
