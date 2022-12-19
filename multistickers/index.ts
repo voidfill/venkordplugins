@@ -38,7 +38,7 @@ export default definePlugin({
     {
         find: "().stickerPreviewContainer",
         replacement: {
-            match: /(?<=\(\)\.closeButton,onClick:function\(\)){return\(0,(\w+\.\w+)\)\((\w+),(\w+\.\w+\.type)\)\}/,
+            match: /(?<=\(\)\.closeButton,.+?\}\),onClick:function\(\)){return\(0,(\w+\.\w+)\)\((\w+),(\w+\.\w+\.type)\)\}/,
             replace: (_, clear, channelId, type) => {
                 return `{return(0,${clear})(${channelId},${type}, e.id)}`; // i really really dont want to match the entire map function, e is almost always react props
             }
